@@ -1,6 +1,6 @@
 # QTUM Raspberry Pi Monitor
 
-- This is a fork of []() that sends messages via Slack instead of email
+- This is a fork of [anuzis's work](https://github.com/anuzis/qtum_pi_monitor) that sends messages via Slack instead of email
 - Simple script to notify of block wins, monitor temperature, and performs basic sanity checks.
 - Easy to review and modify.
 
