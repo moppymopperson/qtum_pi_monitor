@@ -1,15 +1,16 @@
 #!/usr/bin/python
 
-""" Simple script to monitor QTUM wallet and notify when blocks are won.
-
+""" 
+Simple script to monitor QTUM wallet and notify when blocks are won.
 Runs via cron. Ref: https://www.howtoforge.com/a-short-introduction-to-cron-jobs
 Example running hourly. Change the first 0 to * if you want updates each minute.
 0 * * * * /usr/bin/python /home/pi/qtum_monitor.py
 
-First time the script runs it saves the current balance and stake data to a file.
-On subsequent runs, if 'stake' increases the script emails you at RECIPIENT_EMAIL
+The first time the script runs it saves the current balance and stake data to a file.
+On subsequent runs, if 'stake' increases the pings you on Slack
 """
 import subprocess
+import requests
 import json
 import os
 import sys
@@ -22,11 +23,11 @@ DAILY_STATUS_UPDATE = True # Send a daily status update to confirm still running
 MONITOR_TEMPERATURE = True # only set true for Raspberry Pi or a system with similar temperature monitoring
 TEMPERATURE_WARNING_THRESHOLD = 80.0 # warn if temperature exceeds this threshold in Celsius
 
-# Assumes system is configured to use /usr/bin/mail.
-# Easy setup ref: http://www.raspberry-projects.com/pi/software_utilities/email/ssmtp-to-send-emails
-RECIPIENT_EMAIL = 'YOUR_EMAIL_HERE@gmail.com'
+# Setup a Slack webhook and then past your URL here
+WEBHOOK_URL = 'https://hooks.slack.com/services/YOUR_WEBHOOK_ADDRESS_GOES_HERE'
 
-QTUM_PATH = '/home/pi/qtum/'
+# You may also need to update this path if you have qtum installed elsewhere
+QTUM_PATH = '/usr/local/'
 LOG_FILE = QTUM_PATH + 'qtum_monitor.log'
 
 STATE_DATA = {
@@ -39,42 +40,41 @@ STATE_DATA = {
 }
 
 if __name__ == '__main__':
+
+    # Method for sending messages to Slack
+    def slack_off(message):
+        payload = json.dumps({"text": message})
+        requests.post(WEBHOOK_URL, data=payload)
+
     # Get latest wallet info.
     try:
         wallet_info = json.loads(subprocess.check_output([QTUM_PATH + 'bin/qtum-cli', 'getwalletinfo']))
         staking_info = json.loads(subprocess.check_output([QTUM_PATH + 'bin/qtum-cli', 'getstakinginfo']))
     except subprocess.CalledProcessError:
-        cmd = 'echo "Error running qtum-cli. Verify settings" | /usr/bin/mail -s "Error running qtum-cli" %s' % RECIPIENT_EMAIL
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('Error running qtum-cli. Verify settings')
         sys.exit()
 
     # Pre-checks
     if (not wallet_info['balance']) and (not wallet_info['stake']):
-        cmd = 'echo "No QTUM balance." | /usr/bin/mail -s "No QTUM balance" %s' % RECIPIENT_EMAIL
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('No QTUM balance.')
         sys.exit()
     if staking_info['errors']:
-        cmd = 'echo "QTUM Errors: %s" | /usr/bin/mail -s "QTUM Errors" %s' % (str(staking_info['errors']), RECIPIENT_EMAIL)
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('QTUM Errors: %s' % (str(staking_info['errors'])))
         sys.exit()
     if wallet_info['unlocked_until'] == 0:
-        cmd = 'echo "QTUM Locked - Not Staking" | /usr/bin/mail -s "QTUM Locked - Not Staking" %s' % RECIPIENT_EMAIL
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('QTUM Locked - Not Staking')
         sys.exit()
     if staking_info['enabled'] != True:
-        cmd = 'echo "QTUM Staking disabled." | /usr/bin/mail -s "QTUM staking disabled." %s' % RECIPIENT_EMAIL
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('QTUM Stacking disabled')
         sys.exit()
     if staking_info['staking'] != True:
-        cmd = 'echo "QTUM Not Yet Staking" | /usr/bin/mail -s "QTUM Not Yet Staking" %s' % RECIPIENT_EMAIL
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('QTUM Not Yet Staking')
         sys.exit()
     if MONITOR_TEMPERATURE:
         temp_str = subprocess.check_output(['/opt/vc/bin/vcgencmd', 'measure_temp'])
         temp = float(temp_str[temp_str.find('=')+1:temp_str.find("'")])
         if temp > TEMPERATURE_WARNING_THRESHOLD:
-            cmd = 'echo "QTUM Pi Temperature Warning! %fC above %fC" | /usr/bin/mail -s "QTUM Pi Temperature Warning" %s' % (temp, TEMPERATURE_WARNING_THRESHOLD, RECIPIENT_EMAIL)
-            ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	        slack_off('QTUM Pi Temperature Warning! %fC above %fC' % (temp, TEMPERATURE_WARNING_THRESHOLD))
 
     # Prepare relevant state data
     latest_data = STATE_DATA.copy()
@@ -89,8 +89,7 @@ if __name__ == '__main__':
         f = open(LOG_FILE, 'w')
         f.write(json.dumps(latest_data))
         f.close()
-        cmd = 'echo "QTUM Monitor initialized" | /usr/sbin/ssmtp %s' % RECIPIENT_EMAIL
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('QTUM Monitor initialized')
         sys.exit()
 
     # Read prior data.
@@ -101,15 +100,11 @@ if __name__ == '__main__':
     # Report on results
     if latest_data['stake'] > prior_data['stake']:
         latest_data['last_block_time_won'] = int(time.time())
-        cmd = 'echo "Stake earned! Balance: %d Stake: %d" | /usr/bin/mail -s "Stake earned!" %s' % (int(latest_data['balance']), int(latest_data['stake']), RECIPIENT_EMAIL)
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('Stake earned! Balance: %d Stake: %d' % (int(latest_data['balance']), int(latest_data['stake'])))
     if NOTIFY_ALWAYS:
-        cmd = 'echo "Balance: %d Stake: %d" | /usr/bin/mail -s "Update" %s' % (int(latest_data['balance']), int(latest_data['stake']), RECIPIENT_EMAIL)
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('Balance: %d Stake %d' % (int(latest_data['balance']), int(latest_data['stake'])))
     if DAILY_STATUS_UPDATE and (latest_data['date'] != prior_data['date']):
-        cmd = 'echo "Balance: %d Stake: %d" | /usr/bin/mail -s "%s Daily Update: %d" %s' % (
-            int(latest_data['balance']), int(latest_data['stake']), latest_data['date'], int(latest_data['total_balance']), RECIPIENT_EMAIL)
-        ssmpt = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	    slack_off('Daily Update for %s:\nTotal Balance: %d Stake: %d' % (latest_data['date'], int(latest_data['total_balance']), int(latest_data['stake'])))
 
     # Write latest state to log
     log_file = open(LOG_FILE, 'w')

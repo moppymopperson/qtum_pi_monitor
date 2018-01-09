@@ -1,10 +1,11 @@
 # QTUM Raspberry Pi Monitor
 
+- This is a fork of []() that sends messages via Slack instead of email
 - Simple script to notify of block wins, monitor temperature, and performs basic sanity checks.
-- Under 100 lines (on release), easy to review and modify.
+- Easy to review and modify.
 
 # Setup Instructions
-- Set RECIPIENT_EMAIL to your address.
+- Set WEBHOOK_URL to your address.
 - Set QTUM_PATH to where you have QTUM installed.
 - Add a cronjob to run the script at your desired frequency. (examples in script)
 
